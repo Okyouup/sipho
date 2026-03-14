@@ -1,0 +1,28 @@
+# =============================================================================
+# Aegis-1 — Python Dependencies
+# =============================================================================
+# Install:  pip install -r requirements.txt
+# =============================================================================
+
+# ── LLM Providers ─────────────────────────────────────────────────────────────
+openai>=1.30.0              # DeepSeek API (OpenAI-compatible) + OpenAI adapter
+anthropic>=0.25.0           # Anthropic Claude adapter (Llm.py)
+requests>=2.31.0            # Ollama adapter + HTTP calls
+
+# ── Embeddings ────────────────────────────────────────────────────────────────
+sentence-transformers>=2.7.0  # Semantic embeddings (all-MiniLM-L6-v2, local, no API cost)
+numpy>=1.26.0                 # Vector ops — VSA/HDC memory, SNN signal processing
+
+# ── Neuromorphic SNN (Nengo) ──────────────────────────────────────────────────
+nengo>=3.2.0                # LIF spiking neural network — PerceptualGateway System1/2 routing
+
+# ── Web API ───────────────────────────────────────────────────────────────────
+fastapi>=0.110.0            # REST API framework (api.py)
+uvicorn[standard]>=0.29.0   # ASGI server — serves FastAPI + web UI
+pydantic>=2.7.0             # Request/response validation
+
+# ── Huawei Cloud ──────────────────────────────────────────────────────────────
+esdk-obs-python>=3.23.0     # Huawei OBS (Object Storage) — persistent cloud memory sync
+
+# ── Dev / Test (optional) ─────────────────────────────────────────────────────
+# pip install -r requirements.txt -r requirements-dev.txt

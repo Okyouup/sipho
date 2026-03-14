@@ -1,0 +1,99 @@
+{
+  "facts": {
+    "fact_00000": {
+      "id": "fact_00000",
+      "text": "The Eiffel Tower is located in Paris, France.",
+      "category": "geography",
+      "negation": "the eiffel tower is not located in paris, france.",
+      "keywords": [
+        "eiffel",
+        "tower",
+        "france",
+        "paris",
+        "located"
+      ],
+      "confidence": 1.0,
+      "source": "manual",
+      "created_at": 1773419061.407723
+    },
+    "fact_00001": {
+      "id": "fact_00001",
+      "text": "Python was first released in 1991 by Guido van Rossum.",
+      "category": "technology",
+      "negation": "python was not first released in 1991 by guido van rossum.",
+      "keywords": [
+        "released",
+        "guido",
+        "first",
+        "van",
+        "rossum",
+        "python"
+      ],
+      "confidence": 1.0,
+      "source": "manual",
+      "created_at": 1773419066.581888
+    },
+    "fact_00002": {
+      "id": "fact_00002",
+      "text": "The speed of light in a vacuum is 299,792 km/s.",
+      "category": "physics",
+      "negation": "the speed of light in a vacuum is not 299,792 km/s.",
+      "keywords": [
+        "speed",
+        "light",
+        "vacuum"
+      ],
+      "confidence": 1.0,
+      "source": "manual",
+      "created_at": 1773419066.5993018
+    },
+    "fact_00003": {
+      "id": "fact_00003",
+      "text": "Water boils at 100 degrees Celsius at sea level.",
+      "category": "physics",
+      "negation": null,
+      "keywords": [
+        "sea",
+        "degrees",
+        "level",
+        "boils",
+        "celsius",
+        "water"
+      ],
+      "confidence": 1.0,
+      "source": "manual",
+      "created_at": 1773419066.627636
+    },
+    "fact_00004": {
+      "id": "fact_00004",
+      "text": "The Great Wall of China is located in China.",
+      "category": "geography",
+      "negation": "the great wall of china is not located in china.",
+      "keywords": [
+        "wall",
+        "great",
+        "located",
+        "china"
+      ],
+      "confidence": 1.0,
+      "source": "manual",
+      "created_at": 1773419066.6678321
+    },
+    "fact_00005": {
+      "id": "fact_00005",
+      "text": "Shakespeare wrote Hamlet, Macbeth, and Othello.",
+      "category": "literature",
+      "negation": "shakespeare not wrote hamlet, macbeth, and othello.",
+      "keywords": [
+        "othello",
+        "wrote",
+        "shakespeare",
+        "macbeth",
+        "hamlet"
+      ],
+      "confidence": 1.0,
+      "source": "manual",
+      "created_at": 1773419066.694252
+    }
+  }
+}

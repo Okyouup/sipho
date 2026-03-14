@@ -1,0 +1,6 @@
+expo-env.d.ts
+.env
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
