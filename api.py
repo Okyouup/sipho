@@ -155,8 +155,8 @@ async def lifespan(app: FastAPI):
         vsa_dim=10_000,
         vsa_capacity=5_000,
         vsa_threshold=0.55,
-        monitor_strong_threshold=0.72,
-        monitor_moderate_threshold=0.50,
+        monitor_strong_threshold=0.78,
+        monitor_moderate_threshold=0.66,
         max_rethink_attempts=2,
         system_prompt=(
             "You are a precise, helpful assistant with a persistent memory system. "
@@ -221,6 +221,9 @@ class ChatResponse(BaseModel):
     memory_hits: int
     latency_ms: float
     conflicts: list
+    novelty: float = 0.0
+    vsa_hits: int = 0
+    attention_suppressed: bool = False
 
 class FactRequest(BaseModel):
     fact: str
@@ -237,7 +240,7 @@ async def root():
     """Serve the web UI."""
     ui_path = os.path.join(BASE_DIR, "ui.html")
     if os.path.exists(ui_path):
-        with open(ui_path) as f:
+        with open(ui_path, encoding="utf-8") as f:
             return f.read()
     return HTMLResponse("<h1>Aegis-1 API running</h1><p>See /docs for API reference.</p>")
 
@@ -295,6 +298,9 @@ async def chat(req: ChatRequest):
         memory_hits=resp.cortex_memories,
         latency_ms=round(resp.total_latency_ms, 1),
         conflicts=conflicts,
+        novelty=round(resp.gateway.novelty, 3),
+        vsa_hits=resp.vsa_hits,
+        attention_suppressed=resp.attention.suppressed,
     )
 
 
@@ -349,6 +355,35 @@ async def reset():
     aegis.reset_conversation()
     log.info("Conversation reset via /reset")
     return {"status": "ok"}
+
+
+@app.get("/goals")
+async def list_goals():
+    """Return all active goals."""
+    if aegis is None:
+        raise HTTPException(status_code=503, detail="Aegis not initialised")
+    return {
+        "goals": [
+            {
+                "goal_id": g.goal_id,
+                "text": g.text,
+                "priority": g.priority.name,
+            }
+            for g in aegis.list_goals()
+        ]
+    }
+
+
+@app.delete("/goals/{goal_id}")
+async def delete_goal(goal_id: str):
+    """Remove a goal by ID."""
+    if aegis is None:
+        raise HTTPException(status_code=503, detail="Aegis not initialised")
+    removed = aegis.remove_goal(goal_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    log.info(f"Goal removed: {goal_id}")
+    return {"status": "ok", "removed": goal_id}
 
 
 @app.get("/stats")

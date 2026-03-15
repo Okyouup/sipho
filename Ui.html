@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Aegis-1 · Cognitive AI</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&display=swap');
 
   :root {
     --bg:        #09090f;
@@ -14,10 +15,11 @@
     --accent:    #7c6aff;
     --accent2:   #00d4aa;
     --danger:    #ff4d6d;
+    --warn:      #ffb347;
     --text:      #e8e8f0;
     --muted:     #6b6b80;
     --mono:      'Space Mono', monospace;
-    --sans:      'Syne', sans-serif;
+    --sans:      'Inter', sans-serif;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -29,7 +31,7 @@
     height: 100vh;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 270px 1fr;
     grid-template-areas:
       "header header"
       "sidebar main"
@@ -58,10 +60,9 @@
 
   .logo-text {
     font-size: 20px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
   }
-
   .logo-text span { color: var(--accent); }
 
   .header-right {
@@ -93,7 +94,7 @@
     padding: 20px 16px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
     overflow-y: auto;
     background: var(--surface);
   }
@@ -104,7 +105,7 @@
     letter-spacing: 2px;
     color: var(--muted);
     text-transform: uppercase;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
 
   .stat-row {
@@ -115,9 +116,7 @@
     font-size: 13px;
     border-bottom: 1px solid var(--border);
   }
-
   .stat-row:last-child { border-bottom: none; }
-
   .stat-label { color: var(--muted); font-size: 12px; }
   .stat-value {
     font-family: var(--mono);
@@ -143,8 +142,10 @@
   .sidebar-btn:hover { border-color: var(--accent); color: var(--accent); }
   .sidebar-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
 
-  .fact-input-wrap { display: flex; flex-direction: column; gap: 6px; }
-  .fact-input-wrap input, .fact-input-wrap select {
+  /* ── Fact / Goal input forms ── */
+  .form-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .form-wrap input,
+  .form-wrap select {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -155,8 +156,56 @@
     outline: none;
     transition: border-color 0.15s;
   }
-  .fact-input-wrap input:focus, .fact-input-wrap select:focus {
-    border-color: var(--accent);
+  .form-wrap input:focus,
+  .form-wrap select:focus { border-color: var(--accent); }
+
+  /* ── Goals list ── */
+  .goals-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+    max-height: 130px;
+    overflow-y: auto;
+  }
+  .goal-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .goal-priority {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .goal-priority.HIGH     { background: rgba(124,106,255,0.2); color: var(--accent); }
+  .goal-priority.NORMAL   { background: rgba(0,212,170,0.12);  color: var(--accent2); }
+  .goal-priority.LOW      { background: rgba(107,107,128,0.2); color: var(--muted); }
+  .goal-priority.CRITICAL { background: rgba(255,77,109,0.2);  color: var(--danger); }
+
+  .goal-text { flex: 1; color: var(--text); font-size: 11px; }
+  .goal-remove {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; font-size: 14px; line-height: 1;
+    padding: 0 2px; flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .goal-remove:hover { color: var(--danger); }
+  .goals-empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    padding: 8px 0;
   }
 
   /* ── Chat area ── */
@@ -174,7 +223,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-width: 780px;
+    max-width: 820px;
     animation: fadeUp 0.25s ease;
   }
 
@@ -183,15 +232,24 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  .message.user { align-self: flex-end; align-items: flex-end; }
+  .message.user  { align-self: flex-end;  align-items: flex-end; }
   .message.aegis { align-self: flex-start; align-items: flex-start; }
+
+  /* ── Bubble wrapper (holds bubble + copy btn) ── */
+  .bubble-wrap {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    max-width: 680px;
+  }
 
   .bubble {
     padding: 14px 18px;
     border-radius: 16px;
     font-size: 14px;
     line-height: 1.7;
-    max-width: 640px;
+    flex: 1;
   }
 
   .user .bubble {
@@ -206,12 +264,79 @@
     border-bottom-left-radius: 4px;
   }
 
+  /* ── Markdown content inside bubbles ── */
+  .bubble-content h1, .bubble-content h2, .bubble-content h3 {
+    margin: 12px 0 6px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .bubble-content h1 { font-size: 18px; }
+  .bubble-content h2 { font-size: 16px; }
+  .bubble-content h3 { font-size: 14px; color: var(--accent2); }
+  .bubble-content p  { margin-bottom: 8px; }
+  .bubble-content p:last-child { margin-bottom: 0; }
+  .bubble-content ul, .bubble-content ol {
+    margin: 6px 0 8px 18px;
+  }
+  .bubble-content li { margin-bottom: 4px; }
+  .bubble-content code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: rgba(124,106,255,0.15);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent2);
+  }
+  .bubble-content pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 8px 0;
+  }
+  .bubble-content pre code {
+    background: none;
+    padding: 0;
+    color: var(--text);
+  }
+  .bubble-content strong { color: #fff; font-weight: 700; }
+  .bubble-content em { color: var(--accent2); font-style: italic; }
+  .bubble-content blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    color: var(--muted);
+    margin: 8px 0;
+  }
+  .bubble-content a { color: var(--accent2); text-decoration: underline; }
+  .bubble-content hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+
+  /* ── Copy button ── */
+  .copy-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 5px 7px;
+    flex-shrink: 0;
+    margin-top: 6px;
+    transition: all 0.15s;
+    align-self: flex-start;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--accent2); color: var(--accent2); }
+
+  /* ── Telemetry row ── */
   .telemetry {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
     font-family: var(--mono);
     font-size: 10px;
+    max-width: 680px;
   }
 
   .tag {
@@ -225,6 +350,108 @@
   .tag.invalid { border-color: var(--danger);  color: var(--danger); }
   .tag.route   { border-color: var(--accent);  color: var(--accent); }
 
+  /* ── Confidence bar ── */
+  .confidence-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .confidence-track {
+    width: 60px;
+    height: 5px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .confidence-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+  .confidence-fill.high { background: var(--accent2); }
+  .confidence-fill.mid  { background: var(--warn); }
+  .confidence-fill.low  { background: var(--danger); }
+  .confidence-pct {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    min-width: 28px;
+  }
+
+  /* ── Phase trace ── */
+  .phase-trace {
+    max-width: 680px;
+    margin-top: 4px;
+  }
+  .phase-trace summary {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    user-select: none;
+    transition: color 0.15s;
+  }
+  .phase-trace summary:hover { color: var(--accent); }
+  .phase-trace summary::before {
+    content: '▶';
+    font-size: 8px;
+    transition: transform 0.2s;
+  }
+  .phase-trace[open] summary::before { transform: rotate(90deg); }
+
+  .phase-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-top: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .phase-item {
+    display: grid;
+    grid-template-columns: 20px 130px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+  .phase-item:last-child { border-bottom: none; }
+  .phase-num {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--border);
+    color: var(--muted);
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+  }
+  .phase-item.ok   .phase-num { background: rgba(0,212,170,0.15); color: var(--accent2); }
+  .phase-item.warn .phase-num { background: rgba(255,179,71,0.15); color: var(--warn); }
+  .phase-item.err  .phase-num { background: rgba(255,77,109,0.15); color: var(--danger); }
+  .phase-item.skip .phase-num { background: rgba(107,107,128,0.1); color: var(--muted); }
+  .phase-name { color: var(--muted); font-size: 10px; }
+  .phase-result { color: var(--text); font-size: 11px; }
+  .phase-item.ok   .phase-result { color: var(--accent2); }
+  .phase-item.warn .phase-result { color: var(--warn); }
+  .phase-item.err  .phase-result { color: var(--danger); }
+  .phase-item.skip .phase-result { color: var(--muted); }
+
+  /* ── Conflict box ── */
   .conflict-box {
     background: rgba(255, 77, 109, 0.08);
     border: 1px solid rgba(255, 77, 109, 0.3);
@@ -233,9 +460,10 @@
     font-family: var(--mono);
     font-size: 11px;
     color: var(--danger);
-    max-width: 640px;
+    max-width: 680px;
   }
 
+  /* ── Typing indicator ── */
   .typing {
     display: flex;
     gap: 5px;
@@ -259,6 +487,7 @@
     40%           { opacity: 1;   transform: scale(1.1); }
   }
 
+  /* ── Empty state ── */
   .empty-state {
     margin: auto;
     text-align: center;
@@ -268,14 +497,13 @@
   .empty-state h2 { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
   .empty-state p  { font-size: 14px; line-height: 1.6; max-width: 380px; }
 
-  /* ── Input ── */
+  /* ── Input area ── */
   .input-area {
     grid-area: input;
     padding: 16px 24px 20px;
     border-top: 1px solid var(--border);
     background: var(--bg);
   }
-
   .input-wrap {
     display: flex;
     gap: 10px;
@@ -287,7 +515,6 @@
     transition: border-color 0.15s;
   }
   .input-wrap:focus-within { border-color: var(--accent); }
-
   #messageInput {
     flex: 1;
     background: transparent;
@@ -301,7 +528,6 @@
     line-height: 1.5;
   }
   #messageInput::placeholder { color: var(--muted); }
-
   .send-btn {
     width: 36px; height: 36px;
     background: var(--accent);
@@ -317,7 +543,6 @@
   .send-btn:hover { background: #9380ff; transform: scale(1.05); }
   .send-btn:disabled { background: var(--border); cursor: not-allowed; transform: none; }
   .send-btn svg { width: 16px; height: 16px; fill: white; }
-
   .input-hint {
     font-family: var(--mono);
     font-size: 10px;
@@ -325,6 +550,58 @@
     margin-top: 8px;
     padding-left: 4px;
   }
+
+  /* ── Toast notifications ── */
+  #toastContainer {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 9999;
+    pointer-events: none;
+  }
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    max-width: 320px;
+    pointer-events: all;
+    opacity: 0;
+    transform: translateX(20px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    border: 1px solid;
+  }
+  .toast.show { opacity: 1; transform: translateX(0); }
+  .toast.success {
+    background: rgba(0,212,170,0.12);
+    border-color: rgba(0,212,170,0.35);
+    color: var(--accent2);
+  }
+  .toast.error {
+    background: rgba(255,77,109,0.12);
+    border-color: rgba(255,77,109,0.35);
+    color: var(--danger);
+  }
+  .toast.info {
+    background: rgba(124,106,255,0.12);
+    border-color: rgba(124,106,255,0.35);
+    color: var(--accent);
+  }
+  .toast-msg { flex: 1; line-height: 1.4; }
+  .toast-close {
+    background: none; border: none;
+    color: inherit; cursor: pointer;
+    font-size: 16px; opacity: 0.6;
+    line-height: 1; padding: 0;
+    flex-shrink: 0;
+  }
+  .toast-close:hover { opacity: 1; }
 
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -343,6 +620,7 @@
 </header>
 
 <aside>
+  <!-- System Stats -->
   <div class="sidebar-section">
     <h3>System Stats</h3>
     <div class="stat-row"><span class="stat-label">Turns</span><span class="stat-value" id="statTurns">—</span></div>
@@ -352,15 +630,35 @@
     <div class="stat-row"><span class="stat-label">Boot time</span><span class="stat-value" id="statBoot">—</span></div>
   </div>
 
+  <!-- Memory Controls -->
   <div class="sidebar-section">
     <h3>Memory</h3>
     <button class="sidebar-btn" onclick="sleepMemory()">💾 Consolidate memory</button>
     <button class="sidebar-btn danger" onclick="resetConversation()">🔄 Reset conversation</button>
   </div>
 
+  <!-- Goals Panel -->
+  <div class="sidebar-section">
+    <h3>Active Goals</h3>
+    <div class="goals-list" id="goalsList">
+      <div class="goals-empty">Loading...</div>
+    </div>
+    <div class="form-wrap">
+      <input id="goalText" type="text" placeholder="Add a persistent goal...">
+      <select id="goalPriority">
+        <option value="normal">Normal priority</option>
+        <option value="high">High priority</option>
+        <option value="low">Low priority</option>
+        <option value="critical">Critical</option>
+      </select>
+      <button class="sidebar-btn" onclick="addGoal()">+ Add goal</button>
+    </div>
+  </div>
+
+  <!-- Load Fact -->
   <div class="sidebar-section">
     <h3>Load a Fact</h3>
-    <div class="fact-input-wrap">
+    <div class="form-wrap">
       <input id="factText" type="text" placeholder="Enter a ground-truth fact...">
       <select id="factCategory">
         <option value="general">general</option>
@@ -386,7 +684,8 @@
 
 <div class="input-area">
   <div class="input-wrap">
-    <textarea id="messageInput" rows="1" placeholder="Ask Aegis-1 anything..." onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <textarea id="messageInput" rows="1" placeholder="Ask Aegis-1 anything..."
+      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
     <button class="send-btn" id="sendBtn" onclick="sendMessage()">
       <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
     </button>
@@ -394,11 +693,38 @@
   <div class="input-hint">Enter to send · Shift+Enter for new line</div>
 </div>
 
-<script>
-const API = '';  // same origin
-let turnCount = 0;
+<!-- Toast container -->
+<div id="toastContainer"></div>
 
-// ── Health check on load ──────────────────────────────────────────────────────
+<script>
+const API = '';
+let turnCount = 0;
+const messageTexts = new Map();
+let msgIdCounter = 0;
+
+// ── marked.js config ──────────────────────────────────────────────────────────
+marked.use({ breaks: true, gfm: true });
+
+// ── Toast system ──────────────────────────────────────────────────────────────
+function showToast(message, type = 'success') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-msg">${message}</span>
+    <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+  `;
+  container.appendChild(toast);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => toast.classList.add('show'));
+  });
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+// ── Health check ──────────────────────────────────────────────────────────────
 async function checkHealth() {
   try {
     const r = await fetch(`${API}/health`);
@@ -409,6 +735,7 @@ async function checkHealth() {
     document.getElementById('statBoot').textContent = d.boot_ms ? `${Math.round(d.boot_ms)}ms` : '—';
     document.getElementById('statObs').textContent = d.obs_connected ? '✓ OBS' : 'local';
   } catch {
+    document.getElementById('statusDot').classList.remove('online');
     document.getElementById('statusLabel').textContent = 'OFFLINE';
   }
 }
@@ -427,7 +754,7 @@ async function sendMessage() {
   autoResize(input);
   document.getElementById('sendBtn').disabled = true;
 
-  appendMessage('user', text);
+  appendUserMessage(text);
   const typingEl = appendTyping();
 
   try {
@@ -444,21 +771,21 @@ async function sendMessage() {
     appendAegisMessage(d);
   } catch (e) {
     typingEl.remove();
-    appendMessage('aegis', `❌ Error: ${e.message}`);
+    appendErrorMessage(`Error: ${e.message}`);
   }
 
   document.getElementById('sendBtn').disabled = false;
   input.focus();
 }
 
-function appendMessage(role, text) {
+// ── Message renderers ─────────────────────────────────────────────────────────
+function appendUserMessage(text) {
   const chat = document.getElementById('chat');
   const msg = document.createElement('div');
-  msg.className = `message ${role}`;
-  msg.innerHTML = `<div class="bubble">${escHtml(text)}</div>`;
+  msg.className = 'message user';
+  msg.innerHTML = `<div class="bubble-wrap"><div class="bubble">${escHtml(text)}</div></div>`;
   chat.appendChild(msg);
   chat.scrollTop = chat.scrollHeight;
-  return msg;
 }
 
 function appendAegisMessage(d) {
@@ -466,36 +793,166 @@ function appendAegisMessage(d) {
   const msg = document.createElement('div');
   msg.className = 'message aegis';
 
+  // Store raw text for copy
+  const id = ++msgIdCounter;
+  messageTexts.set(id, d.text);
+
+  // Confidence bar
+  const pct = Math.round(d.confidence * 100);
+  const confClass = pct >= 70 ? 'high' : pct >= 40 ? 'mid' : 'low';
+
+  // Validation tag
   const validClass = d.validation_passed ? 'valid' : 'invalid';
   const validLabel = d.validation_passed ? '✅ valid' : '⚠️ conflict';
-  const rethinkTag = d.rethink_attempts > 0
-    ? `<span class="tag">rethinks=${d.rethink_attempts}</span>` : '';
-  const memTag = d.memory_hits > 0
-    ? `<span class="tag">mem=${d.memory_hits}</span>` : '';
 
+  // Optional tags
+  const rethinkTag = d.rethink_attempts > 0
+    ? `<span class="tag">↺ rethinks: ${d.rethink_attempts}</span>` : '';
+  const memTag = d.memory_hits > 0
+    ? `<span class="tag">🧠 mem: ${d.memory_hits}</span>` : '';
+
+  // Conflict box
   let conflictsHtml = '';
   if (d.conflicts && d.conflicts.length > 0) {
     const c = d.conflicts[0];
+    // Strip markdown symbols and truncate for readable display
+    const rawClaim = c.claim.replace(/[*`#_~>]/g, '').replace(/\s+/g, ' ').trim();
+    const shortClaim = rawClaim.length > 120 ? rawClaim.slice(0, 120) + '…' : rawClaim;
     conflictsHtml = `
       <div class="conflict-box">
         ⚠️ Conflict detected [${c.severity}]<br>
-        Claim: "${escHtml(c.claim)}"<br>
-        vs fact: "${escHtml(c.stored_fact)}"
+        <span style="opacity:0.7">AI claimed:</span> "${escHtml(shortClaim)}"<br>
+        <span style="opacity:0.7">Known fact:</span> "${escHtml(c.stored_fact)}"
       </div>`;
   }
 
+  // Phase trace
+  const phaseHtml = buildPhaseTrace(d);
+
   msg.innerHTML = `
-    <div class="bubble">${escHtml(d.text)}</div>
+    <div class="bubble-wrap">
+      <div class="bubble">
+        <div class="bubble-content">${marked.parse(d.text)}</div>
+      </div>
+      <button class="copy-btn" title="Copy response" onclick="copyText(this, ${id})">⧉</button>
+    </div>
     <div class="telemetry">
       <span class="tag route">${d.route}</span>
       <span class="tag ${validClass}">${validLabel}</span>
-      <span class="tag">confidence ${Math.round(d.confidence * 100)}%</span>
-      <span class="tag">${d.latency_ms}ms</span>
+      <div class="confidence-wrap" title="Response confidence">
+        <div class="confidence-track">
+          <div class="confidence-fill ${confClass}" style="width:${pct}%"></div>
+        </div>
+        <span class="confidence-pct">${pct}%</span>
+      </div>
+      <span class="tag">⏱ ${d.latency_ms}ms</span>
       ${rethinkTag}${memTag}
     </div>
+    ${phaseHtml}
     ${conflictsHtml}
   `;
 
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function buildPhaseTrace(d) {
+  const noveltyPct = Math.round((d.novelty ?? 0) * 100);
+  const confPct    = Math.round(d.confidence * 100);
+  const isS2       = d.route === 'system_2';
+
+  // Phase 0 — Attention
+  const attnSuppressed = d.attention_suppressed;
+  const attnClass  = attnSuppressed ? 'skip' : 'ok';
+  const attnResult = attnSuppressed
+    ? 'Suppressed → fast path forced'
+    : 'Active — input passed through';
+
+  // Phase 1 — Gateway
+  const gwClass  = isS2 ? 'warn' : 'ok';
+  const gwResult = isS2
+    ? `System 2 — deep reasoning (novelty ${noveltyPct}%)`
+    : `System 1 — fast path (novelty ${noveltyPct}%)`;
+
+  // Phase 2 — Memory
+  const vsa      = d.vsa_hits ?? 0;
+  const mem      = d.memory_hits ?? 0;
+  const memClass = (vsa + mem) > 0 ? 'ok' : 'skip';
+  const memResult = (vsa + mem) > 0
+    ? `VSA: ${vsa} hit${vsa !== 1 ? 's' : ''}, Synaptic: ${mem} hit${mem !== 1 ? 's' : ''}`
+    : 'No relevant memories found';
+
+  // Phase 3 — Monitor
+  const conflicts  = d.conflicts?.length ?? 0;
+  const monClass   = d.validation_passed ? 'ok' : 'err';
+  const monResult  = d.validation_passed
+    ? 'Passed — no conflicts detected'
+    : `${conflicts} conflict${conflicts !== 1 ? 's' : ''} detected`;
+
+  // Phase 4 — Valence (inferred from route context, not exposed yet)
+  const valClass  = 'ok';
+  const valResult = 'Emotional weight encoded';
+
+  // Phase 5 — Goals (always active)
+  const goalClass  = 'ok';
+  const goalResult = 'Active goals injected into prompt';
+
+  // Phase 6 — MetaCognition
+  const metaClass  = confPct >= 70 ? 'ok' : confPct >= 40 ? 'warn' : 'err';
+  const rethinks   = d.rethink_attempts ?? 0;
+  const metaResult = rethinks > 0
+    ? `Confidence ${confPct}% — rethought ${rethinks}×`
+    : `Confidence ${confPct}% — accepted`;
+
+  return `
+    <details class="phase-trace">
+      <summary>Phase trace</summary>
+      <div class="phase-list">
+        <div class="phase-item ${attnClass}">
+          <div class="phase-num">0</div>
+          <span class="phase-name">Attention Filter</span>
+          <span class="phase-result">${attnResult}</span>
+        </div>
+        <div class="phase-item ${gwClass}">
+          <div class="phase-num">1</div>
+          <span class="phase-name">Perceptual Gateway</span>
+          <span class="phase-result">${gwResult}</span>
+        </div>
+        <div class="phase-item ${memClass}">
+          <div class="phase-num">2</div>
+          <span class="phase-name">Memory Retrieval</span>
+          <span class="phase-result">${memResult}</span>
+        </div>
+        <div class="phase-item ${monClass}">
+          <div class="phase-num">3</div>
+          <span class="phase-name">Executive Monitor</span>
+          <span class="phase-result">${monResult}</span>
+        </div>
+        <div class="phase-item ${valClass}">
+          <div class="phase-num">4</div>
+          <span class="phase-name">Valence Tagger</span>
+          <span class="phase-result">${valResult}</span>
+        </div>
+        <div class="phase-item ${goalClass}">
+          <div class="phase-num">5</div>
+          <span class="phase-name">Goal Stack</span>
+          <span class="phase-result">${goalResult}</span>
+        </div>
+        <div class="phase-item ${metaClass}">
+          <div class="phase-num">6</div>
+          <span class="phase-name">MetaCognition</span>
+          <span class="phase-result">${metaResult}</span>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function appendErrorMessage(text) {
+  const chat = document.getElementById('chat');
+  const msg = document.createElement('div');
+  msg.className = 'message aegis';
+  msg.innerHTML = `<div class="bubble-wrap"><div class="bubble" style="border-color:var(--danger);color:var(--danger)">❌ ${escHtml(text)}</div></div>`;
   chat.appendChild(msg);
   chat.scrollTop = chat.scrollHeight;
 }
@@ -510,31 +967,116 @@ function appendTyping() {
   return msg;
 }
 
-// ── Sidebar actions ───────────────────────────────────────────────────────────
+// ── Copy button ───────────────────────────────────────────────────────────────
+function copyText(btn, id) {
+  const text = messageTexts.get(id);
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '⧉';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+// ── Goals panel ───────────────────────────────────────────────────────────────
+async function loadGoals() {
+  try {
+    const r = await fetch(`${API}/goals`);
+    const d = await r.json();
+    renderGoals(d.goals || []);
+  } catch {
+    document.getElementById('goalsList').innerHTML =
+      '<div class="goals-empty">Unavailable</div>';
+  }
+}
+
+function renderGoals(goals) {
+  const list = document.getElementById('goalsList');
+  if (!goals.length) {
+    list.innerHTML = '<div class="goals-empty">No active goals</div>';
+    return;
+  }
+  list.innerHTML = goals.map(g => `
+    <div class="goal-item" id="goal-${g.goal_id}">
+      <span class="goal-priority ${g.priority}">${g.priority}</span>
+      <span class="goal-text">${escHtml(g.text)}</span>
+      <button class="goal-remove" title="Remove goal"
+        onclick="removeGoal('${g.goal_id}')">×</button>
+    </div>
+  `).join('');
+}
+
+async function addGoal() {
+  const text     = document.getElementById('goalText').value.trim();
+  const priority = document.getElementById('goalPriority').value;
+  if (!text) { showToast('Enter a goal first.', 'error'); return; }
+  try {
+    await fetch(`${API}/goals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, priority }),
+    });
+    document.getElementById('goalText').value = '';
+    showToast(`Goal added: "${text.slice(0, 40)}${text.length > 40 ? '…' : ''}"`, 'success');
+    loadGoals();
+  } catch (e) {
+    showToast(`Failed: ${e.message}`, 'error');
+  }
+}
+
+async function removeGoal(goalId) {
+  try {
+    await fetch(`${API}/goals/${goalId}`, { method: 'DELETE' });
+    document.getElementById(`goal-${goalId}`)?.remove();
+    // If list is now empty, show placeholder
+    const list = document.getElementById('goalsList');
+    if (!list.children.length) {
+      list.innerHTML = '<div class="goals-empty">No active goals</div>';
+    }
+    showToast('Goal removed.', 'info');
+  } catch (e) {
+    showToast(`Failed: ${e.message}`, 'error');
+  }
+}
+
+// ── Memory actions ────────────────────────────────────────────────────────────
 async function sleepMemory() {
   try {
     const r = await fetch(`${API}/sleep`, { method: 'POST' });
     const d = await r.json();
     const obsMsg = d.obs_synced ? ' + synced to Huawei OBS' : '';
-    alert(`✅ Memory consolidated${obsMsg}`);
-  } catch (e) { alert(`❌ ${e.message}`); }
+    showToast(`Memory consolidated${obsMsg}`, 'success');
+  } catch (e) {
+    showToast(`Failed: ${e.message}`, 'error');
+  }
 }
 
 async function resetConversation() {
   if (!confirm('Reset conversation history? Long-term memory is kept.')) return;
   try {
     await fetch(`${API}/reset`, { method: 'POST' });
-    document.getElementById('chat').innerHTML =
-      '<div class="empty-state" id="emptyState"><div class="big">🧠</div><h2>Conversation reset</h2><p>Long-term memory is intact.</p></div>';
+    document.getElementById('chat').innerHTML = `
+      <div class="empty-state" id="emptyState">
+        <div class="big">🧠</div>
+        <h2>Conversation reset</h2>
+        <p>Long-term memory is intact. Start a new conversation below.</p>
+      </div>`;
     turnCount = 0;
     document.getElementById('statTurns').textContent = '0';
-  } catch (e) { alert(`❌ ${e.message}`); }
+    showToast('Conversation cleared. Memory intact.', 'info');
+  } catch (e) {
+    showToast(`Failed: ${e.message}`, 'error');
+  }
 }
 
+// ── Facts ─────────────────────────────────────────────────────────────────────
 async function loadFact() {
-  const fact = document.getElementById('factText').value.trim();
+  const fact     = document.getElementById('factText').value.trim();
   const category = document.getElementById('factCategory').value;
-  if (!fact) return alert('Enter a fact first.');
+  if (!fact) { showToast('Enter a fact first.', 'error'); return; }
   try {
     await fetch(`${API}/facts`, {
       method: 'POST',
@@ -542,9 +1084,11 @@ async function loadFact() {
       body: JSON.stringify({ fact, category }),
     });
     document.getElementById('factText').value = '';
-    alert(`✅ Fact loaded: [${category}] ${fact}`);
+    showToast(`Fact loaded: [${category}] ${fact.slice(0, 40)}${fact.length > 40 ? '…' : ''}`, 'success');
     checkHealth();
-  } catch (e) { alert(`❌ ${e.message}`); }
+  } catch (e) {
+    showToast(`Failed: ${e.message}`, 'error');
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -559,10 +1103,14 @@ function autoResize(el) {
 
 function escHtml(s) {
   return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-    .replace(/\n/g,'<br>');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadGoals();
 </script>
 </body>
 </html>

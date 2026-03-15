@@ -16,8 +16,6 @@ import logging
 from typing import Dict, List, Optional, Tuple, Callable
 import requests
 import anthropic
-from sentence_transformers import SentenceTransformer as _SentenceTransformer
-
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 try:
-   
+    from sentence_transformers import SentenceTransformer as _SentenceTransformer
     _ST_MODEL_NAME = "all-MiniLM-L6-v2"
     _st_model = None  # lazy-loaded on first call
 
@@ -51,6 +49,8 @@ except ImportError:
         "Falling back to n-gram embedder (not suitable for production). "
         "Install with: pip install sentence-transformers"
     )
+    def _semantic_embed(text: str) -> list:
+        return _simple_embed(text)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
