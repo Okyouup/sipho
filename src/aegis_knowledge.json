@@ -8,13 +8,13 @@
       "keywords": [
         "eiffel",
         "tower",
+        "located",
         "france",
-        "paris",
-        "located"
+        "paris"
       ],
       "confidence": 1.0,
       "source": "manual",
-      "created_at": 1773419061.407723
+      "created_at": 1773673919.405181
     },
     "fact_00001": {
       "id": "fact_00001",
@@ -26,12 +26,12 @@
         "guido",
         "first",
         "van",
-        "rossum",
-        "python"
+        "python",
+        "rossum"
       ],
       "confidence": 1.0,
       "source": "manual",
-      "created_at": 1773419066.581888
+      "created_at": 1773673924.736835
     },
     "fact_00002": {
       "id": "fact_00002",
@@ -39,13 +39,13 @@
       "category": "physics",
       "negation": "the speed of light in a vacuum is not 299,792 km/s.",
       "keywords": [
+        "vacuum",
         "speed",
-        "light",
-        "vacuum"
+        "light"
       ],
       "confidence": 1.0,
       "source": "manual",
-      "created_at": 1773419066.5993018
+      "created_at": 1773673924.755849
     },
     "fact_00003": {
       "id": "fact_00003",
@@ -54,15 +54,15 @@
       "negation": null,
       "keywords": [
         "sea",
-        "degrees",
-        "level",
-        "boils",
         "celsius",
+        "level",
+        "degrees",
+        "boils",
         "water"
       ],
       "confidence": 1.0,
       "source": "manual",
-      "created_at": 1773419066.627636
+      "created_at": 1773673924.787734
     },
     "fact_00004": {
       "id": "fact_00004",
@@ -70,14 +70,14 @@
       "category": "geography",
       "negation": "the great wall of china is not located in china.",
       "keywords": [
-        "wall",
         "great",
         "located",
+        "wall",
         "china"
       ],
       "confidence": 1.0,
       "source": "manual",
-      "created_at": 1773419066.6678321
+      "created_at": 1773673924.826259
     },
     "fact_00005": {
       "id": "fact_00005",
@@ -86,14 +86,14 @@
       "negation": "shakespeare not wrote hamlet, macbeth, and othello.",
       "keywords": [
         "othello",
-        "wrote",
         "shakespeare",
         "macbeth",
+        "wrote",
         "hamlet"
       ],
       "confidence": 1.0,
       "source": "manual",
-      "created_at": 1773419066.694252
+      "created_at": 1773673924.8561568
     }
   }
 }

@@ -1,10 +1,20 @@
+"""
+GoalStack: Persistent goal management for Aegis-1 (Phase 5).
+
+v2 improvements:
+- Semantic completion detection via optional embed_fn (cosine similarity)
+- Goals are pre-embedded at push time — no repeated encoding
+- Minimum 2-turn dwell guard prevents instant mis-completion
+- Keyword signals still fire first; semantic is the fallback
+"""
+
 import re
 import time
 import uuid
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +39,18 @@ class GoalPriority(Enum):
 
 @dataclass
 class Goal:
-    """A single goal in the active goal stack."""
     id: str
-    text: str                           # Natural language goal description
+    text: str
     priority: GoalPriority
     status: GoalStatus = GoalStatus.ACTIVE
     created_at: float = field(default_factory=time.time)
     completed_at: Optional[float] = None
-    ttl_seconds: Optional[float] = None   # None = no expiry
+    ttl_seconds: Optional[float] = None
     completion_signals: List[str] = field(default_factory=list)
-        # Keywords/phrases that indicate this goal was achieved
     turn_created: int = 0
     turn_completed: Optional[int] = None
     metadata: Dict = field(default_factory=dict)
+    _embedding: Optional[List[float]] = field(default=None, repr=False)
 
     @property
     def age_seconds(self) -> float:
@@ -49,35 +58,30 @@ class Goal:
 
     @property
     def is_expired(self) -> bool:
-        if self.ttl_seconds is None:
-            return False
-        return self.age_seconds > self.ttl_seconds
+        return self.ttl_seconds is not None and self.age_seconds > self.ttl_seconds
 
     @property
     def is_active(self) -> bool:
         return self.status == GoalStatus.ACTIVE
 
     def complete(self, turn: Optional[int] = None) -> None:
-        self.status = GoalStatus.COMPLETED
+        self.status       = GoalStatus.COMPLETED
         self.completed_at = time.time()
         self.turn_completed = turn
 
     def to_dict(self) -> Dict:
         return {
-            "id": self.id,
-            "text": self.text,
-            "priority": self.priority.name,
-            "status": self.status.value,
-            "age_seconds": round(self.age_seconds, 1),
-            "turn_created": self.turn_created,
+            "id":             self.id,
+            "text":           self.text,
+            "priority":       self.priority.name,
+            "status":         self.status.value,
+            "age_seconds":    round(self.age_seconds, 1),
+            "turn_created":   self.turn_created,
             "turn_completed": self.turn_completed,
         }
 
     def __repr__(self) -> str:
-        return (
-            f"Goal({self.priority.name}: '{self.text[:50]}' "
-            f"[{self.status.value}])"
-        )
+        return f"Goal({self.priority.name}: '{self.text[:50]}' [{self.status.value}])"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -89,34 +93,28 @@ class GoalStack:
     Dorsolateral PFC analogue: maintains active goals across conversation turns.
 
     Goals are injected into the LLM system prompt as a "current objectives"
-    section, biasing responses toward goal completion. Completed goals are
-    archived and contribute to long-term episodic memory.
+    section. Completed goals are archived.
 
-    Usage:
-        goals = GoalStack()
-        goals.push("Help the user debug their Python script.", priority=GoalPriority.HIGH)
-        goals.push("Maintain a friendly and patient tone.", priority=GoalPriority.NORMAL)
-
-        # In Aegis.think():
-        extra_context = goals.get_context_string()
-        goals.check_completion(user_input, llm_response, turn=5)
+    v2: optional embed_fn enables semantic completion detection via cosine
+    similarity, eliminating false positives from incidental keyword matches
+    and false negatives from paraphrased completions.
     """
 
     def __init__(
         self,
         max_active_goals: int = 10,
         auto_expire: bool = True,
+        embed_fn: Optional[Callable[[str], List[float]]] = None,
+        semantic_threshold: float = 0.62,
+        min_dwell_turns: int = 2,
         verbose: bool = False,
     ):
-        """
-        Args:
-            max_active_goals: Maximum concurrent active goals.
-            auto_expire: Automatically expire goals past their TTL.
-            verbose: Log goal state changes.
-        """
-        self.max_active_goals = max_active_goals
-        self.auto_expire      = auto_expire
-        self.verbose          = verbose
+        self.max_active_goals  = max_active_goals
+        self.auto_expire       = auto_expire
+        self.embed_fn          = embed_fn
+        self.semantic_threshold = semantic_threshold
+        self.min_dwell_turns   = min_dwell_turns
+        self.verbose           = verbose
 
         self._goals: Dict[str, Goal] = {}
         self._archived: List[Goal]   = []
@@ -134,22 +132,15 @@ class GoalStack:
         completion_signals: Optional[List[str]] = None,
         metadata: Optional[Dict] = None,
     ) -> Goal:
-        """
-        Add a new goal to the stack.
-
-        Args:
-            text: Natural language description of the goal.
-            priority: Goal priority (affects ordering in context injection).
-            ttl_seconds: Optional time-to-live in seconds.
-            completion_signals: Keywords in LLM responses that indicate completion.
-            metadata: Optional key-value context.
-
-        Returns:
-            The created Goal object.
-        """
-        # Prune if at capacity
         if len(self.active_goals) >= self.max_active_goals:
             self._drop_lowest_priority()
+
+        embedding = None
+        if self.embed_fn:
+            try:
+                embedding = self.embed_fn(text)
+            except Exception:
+                pass
 
         goal = Goal(
             id=str(uuid.uuid4())[:8],
@@ -159,34 +150,28 @@ class GoalStack:
             completion_signals=completion_signals or [],
             turn_created=self._turn,
             metadata=metadata or {},
+            _embedding=embedding,
         )
         self._goals[goal.id] = goal
 
         if self.verbose:
             logger.debug(f"[GoalStack] Pushed: {goal}")
-
         return goal
 
     def complete(self, goal_id: str) -> bool:
-        """Manually mark a goal as completed."""
         if goal_id not in self._goals:
             return False
-        goal = self._goals[goal_id]
-        goal.complete(turn=self._turn)
-        self._archive(goal)
-        if self.verbose:
-            logger.debug(f"[GoalStack] Completed: {goal}")
+        self._goals[goal_id].complete(turn=self._turn)
+        self._archive(self._goals[goal_id])
         return True
 
     def pause(self, goal_id: str) -> bool:
-        """Pause a goal (keep it but don't inject it)."""
         if goal_id not in self._goals:
             return False
         self._goals[goal_id].status = GoalStatus.PAUSED
         return True
 
     def resume(self, goal_id: str) -> bool:
-        """Resume a paused goal."""
         if goal_id not in self._goals:
             return False
         if self._goals[goal_id].status == GoalStatus.PAUSED:
@@ -194,7 +179,6 @@ class GoalStack:
         return True
 
     def remove(self, goal_id: str) -> bool:
-        """Remove a goal entirely."""
         if goal_id not in self._goals:
             return False
         self._archive(self._goals[goal_id])
@@ -207,20 +191,14 @@ class GoalStack:
         turn: Optional[int] = None,
     ) -> List[Goal]:
         """
-        Auto-detect which goals may have been completed based on the
-        LLM response content.
+        Auto-detect which goals were completed this turn.
 
-        Checks:
-        1. Explicit completion signals (keyword match)
-        2. Heuristic: response directly addresses the goal topic
+        Strategy:
+        1. Explicit keyword signals (fast, precise when signals are well-chosen)
+        2. Semantic cosine similarity (requires embed_fn; catches paraphrased completions)
 
-        Args:
-            user_input: The user's message.
-            llm_response: The LLM's response.
-            turn: Current conversation turn index.
-
-        Returns:
-            List of goals that were auto-completed.
+        A goal needs ≥ min_dwell_turns turns of activity before semantic
+        completion fires, preventing instant mis-completion.
         """
         if turn is not None:
             self._turn = turn
@@ -228,20 +206,43 @@ class GoalStack:
         combined = (user_input + " " + llm_response).lower()
         completed = []
 
+        response_embedding = None
+        if self.embed_fn:
+            try:
+                response_embedding = self.embed_fn(llm_response)
+            except Exception:
+                pass
+
         for goal in list(self.active_goals):
-            # 1. Explicit completion signals
-            for signal in goal.completion_signals:
-                if signal.lower() in combined:
+            # 1. Keyword signals
+            signal_hit = any(sig.lower() in combined for sig in goal.completion_signals)
+            if signal_hit:
+                if self.verbose:
+                    logger.debug(f"[GoalStack] Completed via keyword: {goal}")
+                goal.complete(turn=self._turn)
+                self._archive(goal)
+                completed.append(goal)
+                continue
+
+            # 2. Semantic similarity
+            if (
+                self.embed_fn
+                and response_embedding is not None
+                and goal._embedding is not None
+                and (self._turn - goal.turn_created) >= self.min_dwell_turns
+            ):
+                sim = self._cosine(goal._embedding, response_embedding)
+                if sim >= self.semantic_threshold:
+                    if self.verbose:
+                        logger.debug(
+                            f"[GoalStack] Completed via semantic "
+                            f"(sim={sim:.3f}): {goal}"
+                        )
                     goal.complete(turn=self._turn)
                     self._archive(goal)
                     completed.append(goal)
-                    if self.verbose:
-                        logger.debug(
-                            f"[GoalStack] Auto-completed (signal '{signal}'): {goal}"
-                        )
-                    break
 
-        # 2. Expiry sweep
+        # Expiry sweep
         if self.auto_expire:
             for goal in list(self.active_goals):
                 if goal.is_expired:
@@ -253,7 +254,6 @@ class GoalStack:
         return completed
 
     def tick(self, turn: int) -> None:
-        """Advance the turn counter (called by Aegis each cycle)."""
         self._turn = turn
         if self.auto_expire:
             for goal in list(self.active_goals):
@@ -266,35 +266,23 @@ class GoalStack:
     # ─────────────────────────────────────────────
 
     def get_context_string(self) -> str:
-        """
-        Build a context block to inject into the LLM system prompt.
-        Returns an empty string if there are no active goals.
-        """
         active = self.active_goals
         if not active:
             return ""
-
-        # Sort by priority descending
         sorted_goals = sorted(active, key=lambda g: g.priority.value, reverse=True)
-
-        lines = []
-        for g in sorted_goals:
-            marker = {
-                GoalPriority.CRITICAL: "🔴",
-                GoalPriority.HIGH:     "🟠",
-                GoalPriority.NORMAL:   "🟡",
-                GoalPriority.LOW:      "⚪",
-            }.get(g.priority, "•")
-            lines.append(f"  {marker} [{g.priority.name}] {g.text}")
-
-        return (
-            "## Active Goals\n"
-            "The following objectives should guide your response:\n"
-            + "\n".join(lines)
-        )
+        _MARKERS = {
+            GoalPriority.CRITICAL: "🔴",
+            GoalPriority.HIGH:     "🟠",
+            GoalPriority.NORMAL:   "🟡",
+            GoalPriority.LOW:      "⚪",
+        }
+        lines = [
+            f"  {_MARKERS.get(g.priority, '•')} [{g.priority.name}] {g.text}"
+            for g in sorted_goals
+        ]
+        return "## Active Goals\nThe following objectives should guide your response:\n" + "\n".join(lines)
 
     def active_texts(self) -> List[str]:
-        """Return text of all active goals (for AttentionFilter.goal_fn)."""
         return [g.text for g in self.active_goals]
 
     # ─────────────────────────────────────────────
@@ -303,10 +291,7 @@ class GoalStack:
 
     @property
     def active_goals(self) -> List[Goal]:
-        return [
-            g for g in self._goals.values()
-            if g.status == GoalStatus.ACTIVE
-        ]
+        return [g for g in self._goals.values() if g.status == GoalStatus.ACTIVE]
 
     @property
     def all_goals(self) -> List[Goal]:
@@ -322,7 +307,6 @@ class GoalStack:
         self._archived.append(goal)
 
     def _drop_lowest_priority(self) -> None:
-        """Remove the lowest-priority active goal to make room."""
         active = self.active_goals
         if not active:
             return
@@ -331,18 +315,28 @@ class GoalStack:
         if self.verbose:
             logger.debug(f"[GoalStack] Capacity drop: {weakest}")
 
+    @staticmethod
+    def _cosine(a: List[float], b: List[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot   = sum(x * y for x, y in zip(a, b))
+        mag_a = sum(x * x for x in a) ** 0.5
+        mag_b = sum(x * x for x in b) ** 0.5
+        if mag_a == 0 or mag_b == 0:
+            return 0.0
+        return dot / (mag_a * mag_b)
+
     @property
     def stats(self) -> Dict:
         return {
-            "active_goals": len(self.active_goals),
-            "total_pushed": len(self._goals) + len(self._archived),
+            "active_goals":    len(self.active_goals),
+            "total_pushed":    len(self._goals) + len(self._archived),
             "total_completed": sum(1 for g in self._archived if g.status == GoalStatus.COMPLETED),
-            "total_expired": sum(1 for g in self._archived if g.status == GoalStatus.EXPIRED),
-            "current_turn": self._turn,
+            "semantic_enabled": self.embed_fn is not None,
         }
 
     def __len__(self) -> int:
         return len(self.active_goals)
 
     def __repr__(self) -> str:
-        return f"GoalStack(active={len(self.active_goals)}, archived={len(self._archived)})"
+        return f"GoalStack(active={len(self.active_goals)}, semantic={'on' if self.embed_fn else 'off'})"

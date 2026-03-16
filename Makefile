@@ -6,7 +6,7 @@ SRC_DIR     := src
 API_HOST    := 0.0.0.0
 API_PORT    := 8000
 BUNDLE_OUT  := bundles/bundle.txt
-SOURCE_DIRS := src cognitive
+SOURCE_DIRS := src api.py obs_sync.py Ui.html
 MEMORY_FILE := src/aegis_memory.json
 KNOWLEDGE_FILE := src/aegis_knowledge.json
 

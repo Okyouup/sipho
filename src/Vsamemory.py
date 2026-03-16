@@ -1,31 +1,30 @@
 """
 VSAMemory: Hyperdimensional Computing (HDC) Memory Kernel (Phase 2 of Aegis-1).
 
-Unlike vector databases that perform approximate nearest-neighbour *search*,
-VSA is *associative*: concepts are bound into composite hypervectors that
-support logical operations (AND, OR, NOT equivalents) before retrieval.
+Hyperdimensional computing (HDC) — also called Vector Symbolic Architectures
+(VSA) — represents concepts as extremely high-dimensional binary vectors.
+The key properties that make this useful for associative memory:
 
-Theory:
-    - Binary hypervectors in R^D (D = 10,000 by default)
-    - Binding   : XOR          (associates two concepts; recoverable)
-    - Bundling  : majority vote (creates a superposition / "OR" memory)
-    - Similarity: normalised Hamming distance
+    Binding   : XOR(a, b) creates a composite vector dissimilar to both a and b
+    Bundling  : majority_vote([a, b, c]) creates a vector similar to all inputs
+    Similarity: cosine distance in high-D space approximates conceptual similarity
 
-Reference:
-    Kanerva, P. (2009). Hyperdimensional Computing: An Introduction to
-    Computing in Distributed Representation with High-Dimensional Random Vectors.
-
-Requirements:
-    pip install numpy
+This module implements a full HDC associative memory store with:
+    - Automatic encoding of text → hypervectors via n-gram tokenisation
+    - Associative retrieval: query by text, get similar stored memories
+    - Temporal decay: older memories gradually fade
+    - Capacity management: weakest traces pruned when at capacity
+    - Bundle cache: topic-level superposition vectors for cluster queries
+    - Logical operations: AND / OR / NOT on memory vectors
 """
 
-import math
 import time
 import uuid
+import math
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,41 +35,46 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HDMemoryTrace:
-    """A single entry in the HDC memory store."""
+    """A single memory entry in the HDC store."""
     id: str
-    label: str                          # Human-readable key
-    hypervector: np.ndarray             # Binary {0, 1}^D
+    label: str
+    hypervector: np.ndarray
     metadata: Dict[str, Any] = field(default_factory=dict)
-    weight: float = 1.0                 # Salience (mirrors Synapse weight)
+    weight: float = 1.0
     activations: int = 0
     created_at: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
-    decay_rate: float = 0.005
 
     def fire(self) -> None:
-        self.activations += 1
-        self.last_accessed = time.time()
-        boost = 0.1 * math.exp(-self.weight * 0.1)
-        self.weight = min(self.weight + boost, 10.0)
+        """Strengthen trace on retrieval (HDC potentiation)."""
+        self.activations   += 1
+        self.last_accessed  = time.time()
+        self.weight         = min(self.weight * 1.05, 10.0)
 
-    def decay(self, hours_elapsed: float) -> None:
-        factor = math.exp(-self.decay_rate * hours_elapsed)
-        self.weight = max(self.weight * factor, 0.01)
+    def decay(self, hours_elapsed: float, decay_rate: float = 0.02) -> None:
+        """Weaken trace with time (HDC depression)."""
+        self.weight = max(self.weight * math.exp(-decay_rate * hours_elapsed), 0.01)
 
 
 @dataclass
 class QueryResult:
-    """Result from a VSA memory query."""
+    """Result of a VSA memory query."""
     label: str
-    similarity: float           # Cosine similarity in HD space [0, 1]
+    text: str
+    similarity: float
     weight: float
-    score: float                # similarity × weight (combined salience)
     metadata: Dict[str, Any]
     trace_id: str
 
+    def __repr__(self) -> str:
+        return (
+            f"QueryResult(label={self.label!r}, "
+            f"sim={self.similarity:.3f}, weight={self.weight:.2f})"
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VSA Operations (static)
+# HDC Primitives
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _random_hv(dim: int, seed: Optional[int] = None) -> np.ndarray:
@@ -80,102 +84,66 @@ def _random_hv(dim: int, seed: Optional[int] = None) -> np.ndarray:
 
 
 def _bind(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """
-    Binding via XOR — associates two hypervectors into a composite.
-    Recoverable: bind(bind(a, b), b) ≈ a
-    """
+    """Binding via XOR. Recoverable: bind(bind(a, b), b) ≈ a"""
     return np.bitwise_xor(a, b)
 
 
 def _bundle(vectors: List[np.ndarray], weights: Optional[List[float]] = None) -> np.ndarray:
-    """
-    Bundle (superposition) via weighted majority vote.
-    The result is approximately similar to all inputs.
-
-    Args:
-        vectors: List of binary hypervectors.
-        weights: Optional salience weights per vector.
-
-    Returns:
-        A binary hypervector representing the bundle.
-    """
+    """Bundle (superposition) via weighted majority vote."""
     if not vectors:
         raise ValueError("Cannot bundle empty list.")
     if len(vectors) == 1:
         return vectors[0].copy()
-
     weights = weights or [1.0] * len(vectors)
-    stack = np.stack(vectors, axis=0).astype(np.float32)
-    w = np.array(weights, dtype=np.float32)[:, np.newaxis]
-    weighted_sum = (stack * w).sum(axis=0)
-    threshold = w.sum() / 2.0
-    return (weighted_sum >= threshold).astype(np.uint8)
+    stack   = np.stack(vectors, axis=0).astype(np.float32)
+    w       = np.array(weights, dtype=np.float32)[:, np.newaxis]
+    return ((stack * w).sum(axis=0) >= w.sum() / 2.0).astype(np.uint8)
 
 
 def _cosine_hd(a: np.ndarray, b: np.ndarray) -> float:
-    """
-    Cosine similarity between two binary hypervectors.
-    Equivalent to 1 - normalised Hamming distance for balanced vectors.
-    """
-    a_f = a.astype(np.float32) * 2 - 1  # Map {0,1} → {-1,+1}
-    b_f = b.astype(np.float32) * 2 - 1
-    dot = float(np.dot(a_f, b_f))
+    """Cosine similarity between two binary hypervectors."""
+    a_f  = a.astype(np.float32) * 2 - 1
+    b_f  = b.astype(np.float32) * 2 - 1
+    dot  = float(np.dot(a_f, b_f))
     norm = float(np.linalg.norm(a_f) * np.linalg.norm(b_f))
     return dot / norm if norm > 0 else 0.0
 
 
 def _permute(v: np.ndarray, shift: int = 1) -> np.ndarray:
-    """Cyclic permutation — encodes sequential position in VSA sequences."""
+    """Cyclic permutation — encodes sequential position."""
     return np.roll(v, shift)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Codebook: maps tokens/concepts to fixed random hypervectors
+# Codebook
 # ─────────────────────────────────────────────────────────────────────────────
 
 class HDCodebook:
-    """
-    Maps string tokens to stable random hypervectors.
-    Once a token is assigned a hypervector, it never changes.
-    """
+    """Maps string tokens to stable random hypervectors."""
 
     def __init__(self, dim: int):
-        self.dim = dim
+        self.dim   = dim
         self._book: Dict[str, np.ndarray] = {}
-        self._rng = np.random.default_rng(seed=2024)
+        self._rng  = np.random.default_rng(seed=2024)
 
     def encode(self, token: str) -> np.ndarray:
-        """Return (or create) the base hypervector for a token."""
         if token not in self._book:
-            hv = self._rng.integers(0, 2, size=self.dim, dtype=np.uint8)
-            self._book[token] = hv
+            self._book[token] = self._rng.integers(0, 2, size=self.dim, dtype=np.uint8)
         return self._book[token]
 
     def encode_sequence(self, tokens: List[str]) -> np.ndarray:
-        """
-        Encode an ordered sequence via position-shifted binding + bundling.
-        Each token's hypervector is permuted by its position index.
-        """
-        components = [
-            _permute(self.encode(tok), shift=i)
-            for i, tok in enumerate(tokens)
-        ]
-        return _bundle(components)
+        return _bundle([_permute(self.encode(t), shift=i) for i, t in enumerate(tokens)])
 
     def text_to_hv(self, text: str) -> np.ndarray:
-        """Convert raw text to a hypervector via n-gram tokenisation."""
         tokens = self._tokenise(text)
         if not tokens:
             return _random_hv(self.dim)
-        # Unigrams
-        unigram_hvs = [self.encode(t) for t in tokens]
-        # Bigrams (position-aware binding)
-        bigram_hvs = [
+        unigrams = [self.encode(t) for t in tokens]
+        bigrams  = [
             _bind(self.encode(tokens[i]), _permute(self.encode(tokens[i + 1])))
             for i in range(len(tokens) - 1)
         ]
-        all_hvs = unigram_hvs + bigram_hvs
-        return _bundle(all_hvs)
+        return _bundle(unigrams + bigrams)
 
     @staticmethod
     def _tokenise(text: str) -> List[str]:
@@ -200,6 +168,7 @@ class VSAMemory:
     - Bundling  : create superposition memories (topic clusters)
     - Querying  : associative retrieval by similarity
     - Decay     : temporal salience decay (older memories fade)
+    - Pruning   : remove weak traces to stay within capacity
     - Logical   : AND / OR / NOT operations on memory vectors
 
     Usage:
@@ -214,25 +183,23 @@ class VSAMemory:
         capacity: int = 5_000,
         similarity_threshold: float = 0.55,
         decay_enabled: bool = True,
+        prune_threshold: float = 0.05,
         verbose: bool = False,
     ):
-        """
-        Args:
-            dim: Hypervector dimensionality. 10k is standard HDC practice.
-            capacity: Max number of stored traces (prune weakest when exceeded).
-            similarity_threshold: Minimum cosine similarity for retrieval.
-            decay_enabled: Apply temporal weight decay.
-            verbose: Log operations.
-        """
-        self.dim = dim
-        self.capacity = capacity
+        self.dim                  = dim
+        self.capacity             = capacity
         self.similarity_threshold = similarity_threshold
-        self.decay_enabled = decay_enabled
-        self.verbose = verbose
+        self.decay_enabled        = decay_enabled
+        self.prune_threshold      = prune_threshold
+        self.verbose              = verbose
 
-        self._codebook = HDCodebook(dim=dim)
-        self._store: Dict[str, HDMemoryTrace] = {}
-        self._bundle_cache: Dict[str, np.ndarray] = {}  # topic → bundled HV
+        self._codebook               = HDCodebook(dim=dim)
+        self._store: Dict[str, HDMemoryTrace]   = {}
+        self._text_cache: Dict[str, str]         = {}
+        self._bundle_cache: Dict[str, np.ndarray] = {}
+
+        self._store_count = 0
+        self._query_count = 0
 
     # ─────────────────────────────────────────────
     # Core Operations
@@ -248,18 +215,7 @@ class VSAMemory:
     ) -> HDMemoryTrace:
         """
         Encode text as a hypervector and store it.
-
-        If a very similar trace already exists, reinforce it (HDC plasticity).
-
-        Args:
-            label: Human-readable key.
-            text: The knowledge / memory content.
-            metadata: Optional context dict.
-            topic: Optional topic group for bundling.
-            force_new: Always create a new entry.
-
-        Returns:
-            The stored or reinforced HDMemoryTrace.
+        If a very similar trace already exists, reinforce it instead.
         """
         hv = self._codebook.text_to_hv(text)
 
@@ -270,7 +226,7 @@ class VSAMemory:
                 if metadata:
                     existing.metadata.update(metadata)
                 if self.verbose:
-                    logger.debug(f"[VSA] Reinforced existing trace: {existing.label}")
+                    logger.debug(f"[VSA] Reinforced: {existing.label}")
                 return existing
 
         trace = HDMemoryTrace(
@@ -279,16 +235,17 @@ class VSAMemory:
             hypervector=hv,
             metadata=metadata or {},
         )
-        self._store[trace.id] = trace
+        self._store[trace.id]      = trace
+        self._text_cache[trace.id] = text
+        self._store_count         += 1
 
-        # Update topic bundle
         if topic:
             self._update_bundle(topic, hv, trace.weight)
 
         self._enforce_capacity()
 
         if self.verbose:
-            logger.debug(f"[VSA] Stored: {label} | dim={self.dim} | total={len(self._store)}")
+            logger.debug(f"[VSA] Stored: {label!r} (total={len(self._store)})")
 
         return trace
 
@@ -296,203 +253,184 @@ class VSAMemory:
         self,
         text: str,
         top_k: int = 5,
-        topic_filter: Optional[str] = None,
-        fire_on_recall: bool = True,
+        topic: Optional[str] = None,
     ) -> List[QueryResult]:
-        """
-        Retrieve memories associatively similar to the query.
-
-        Args:
-            text: Query string.
-            top_k: Maximum results.
-            topic_filter: Optionally restrict to a topic bundle.
-            fire_on_recall: Reinforce retrieved traces (Hebbian learning).
-
-        Returns:
-            List of QueryResult sorted by score descending.
-        """
+        """Retrieve the top-k most similar memories to the query text."""
         if not self._store:
             return []
 
+        self._query_count += 1
         query_hv = self._codebook.text_to_hv(text)
 
-        # Optionally mask with topic bundle (logical AND via weighted query)
-        if topic_filter and topic_filter in self._bundle_cache:
-            bundle_hv = self._bundle_cache[topic_filter]
-            # Modulate query by topic: soft AND via blended hypervector
-            query_hv = _bundle([query_hv, bundle_hv], weights=[0.7, 0.3])
+        if self.decay_enabled:
+            self._run_decay()
 
-        scored: List[QueryResult] = []
-        for trace in self._store.values():
-            sim = _cosine_hd(trace.hypervector, query_hv)
+        scored: List[tuple] = []
+        for trace_id, trace in self._store.items():
+            sim = _cosine_hd(query_hv, trace.hypervector)
             if sim >= self.similarity_threshold:
-                score = sim * trace.weight
-                scored.append(QueryResult(
-                    label=trace.label,
-                    similarity=sim,
-                    weight=trace.weight,
-                    score=score,
-                    metadata=trace.metadata,
-                    trace_id=trace.id,
-                ))
+                scored.append((sim * trace.weight, sim, trace))
 
-        scored.sort(key=lambda r: r.score, reverse=True)
-        results = scored[:top_k]
+        scored.sort(key=lambda x: x[0], reverse=True)
 
-        if fire_on_recall:
-            for r in results:
-                self._store[r.trace_id].fire()
+        results = []
+        for _weighted, sim, trace in scored[:top_k]:
+            trace.fire()
+            results.append(QueryResult(
+                label=trace.label,
+                text=self._text_cache.get(trace.id, ""),
+                similarity=round(sim, 4),
+                weight=round(trace.weight, 4),
+                metadata=trace.metadata.copy(),
+                trace_id=trace.id,
+            ))
+
+        if self.verbose:
+            logger.debug(f"[VSA] Query: {len(results)}/{len(self._store)} results")
 
         return results
 
-    def bind_concepts(
-        self,
-        concept_a: str,
-        concept_b: str,
-        label: Optional[str] = None,
-        metadata: Optional[Dict] = None,
-    ) -> HDMemoryTrace:
-        """
-        Create a bound association between two concepts and store it.
-        Example: bind_concepts("Paris", "capital of France")
-        """
-        hv_a = self._codebook.text_to_hv(concept_a)
-        hv_b = self._codebook.text_to_hv(concept_b)
-        bound = _bind(hv_a, hv_b)
+    def query_topic(self, topic: str, top_k: int = 5) -> List[QueryResult]:
+        """Query using a pre-built topic bundle vector."""
+        if topic not in self._bundle_cache:
+            return []
+        return self._query_hv(self._bundle_cache[topic], top_k=top_k)
 
-        lbl = label or f"{concept_a}::{concept_b}"
-        trace = HDMemoryTrace(
-            id=str(uuid.uuid4()),
-            label=lbl,
-            hypervector=bound,
-            metadata=metadata or {"concept_a": concept_a, "concept_b": concept_b},
-        )
-        self._store[trace.id] = trace
-        return trace
+    # ─────────────────────────────────────────────
+    # Logical Operations
+    # ─────────────────────────────────────────────
 
-    def logical_query(
-        self,
-        include: List[str],
-        exclude: Optional[List[str]] = None,
-        top_k: int = 5,
-    ) -> List[QueryResult]:
-        """
-        Logical compound query:
-            include → bundled (OR) query vector
-            exclude → subtracted from query (NOT approximation)
+    def logical_and(self, text_a: str, text_b: str, top_k: int = 5) -> List[QueryResult]:
+        """Find memories similar to BOTH text_a AND text_b."""
+        hv_a = self._codebook.text_to_hv(text_a)
+        hv_b = self._codebook.text_to_hv(text_b)
+        return self._query_hv(_bundle([hv_a, hv_b]), top_k=top_k)
 
-        Args:
-            include: Concepts to include (OR).
-            exclude: Concepts to negate (NOT).
-            top_k: Max results.
-        """
-        include_hvs = [self._codebook.text_to_hv(t) for t in include]
-        query_hv = _bundle(include_hvs) if len(include_hvs) > 1 else include_hvs[0]
+    def logical_not(self, text: str, top_k: int = 5) -> List[QueryResult]:
+        """Find memories DISSIMILAR to text (semantic complement)."""
+        hv = self._codebook.text_to_hv(text)
+        return self._query_hv(1 - hv, top_k=top_k)
 
-        if exclude:
-            exclude_hvs = [self._codebook.text_to_hv(t) for t in exclude]
-            exclude_bundle = _bundle(exclude_hvs) if len(exclude_hvs) > 1 else exclude_hvs[0]
-            # NOT approximation: XOR with exclusion bundle (flips relevant bits)
-            query_hv = _bind(query_hv, exclude_bundle)
-
-        scored: List[QueryResult] = []
-        for trace in self._store.values():
-            sim = _cosine_hd(trace.hypervector, query_hv)
-            if exclude:
-                # Penalise traces similar to excluded concepts
-                for ehv in [self._codebook.text_to_hv(e) for e in (exclude or [])]:
-                    penalty = max(0.0, _cosine_hd(trace.hypervector, ehv))
-                    sim = sim - 0.5 * penalty
-            if sim >= self.similarity_threshold * 0.5:
-                scored.append(QueryResult(
-                    label=trace.label,
-                    similarity=sim,
-                    weight=trace.weight,
-                    score=sim * trace.weight,
-                    metadata=trace.metadata,
-                    trace_id=trace.id,
-                ))
-
-        scored.sort(key=lambda r: r.score, reverse=True)
-        return scored[:top_k]
+    # ─────────────────────────────────────────────
+    # Memory Maintenance  (called by Aegis.sleep())
+    # ─────────────────────────────────────────────
 
     def apply_temporal_decay(self) -> int:
         """
-        Decay all traces based on time since last access.
-        Returns number of traces decayed.
+        Apply time-based weight decay to all stored traces.
+        Called by Aegis.sleep() during end-of-session consolidation.
+
+        Returns:
+            Number of traces decayed.
         """
-        if not self.decay_enabled:
-            return 0
-        now = time.time()
+        return self._run_decay()
+
+    def prune_weak(self) -> int:
+        """
+        Remove traces whose weight has fallen below prune_threshold,
+        then enforce the capacity limit by removing the weakest survivors.
+        Called by Aegis.sleep() during end-of-session consolidation.
+
+        Returns:
+            Number of traces removed.
+        """
+        before = len(self._store)
+
+        weak_ids = [
+            tid for tid, t in self._store.items()
+            if t.weight < self.prune_threshold
+        ]
+        for tid in weak_ids:
+            del self._store[tid]
+            self._text_cache.pop(tid, None)
+
+        self._enforce_capacity()
+
+        pruned = before - len(self._store)
+        if pruned and self.verbose:
+            logger.debug(f"[VSA] Pruned {pruned} weak traces")
+        return pruned
+
+    # ─────────────────────────────────────────────
+    # Internals
+    # ─────────────────────────────────────────────
+
+    def _run_decay(self) -> int:
+        """Decay all traces proportional to hours since last access."""
+        now   = time.time()
         count = 0
-        for trace in list(self._store.values()):
+        for trace in self._store.values():
             hours = (now - trace.last_accessed) / 3600.0
             if hours > 0.1:
                 trace.decay(hours)
                 count += 1
         return count
 
-    def prune_weak(self, weight_threshold: float = 0.05) -> int:
-        """Remove traces below weight threshold. Returns count pruned."""
-        to_prune = [
-            tid for tid, t in self._store.items()
-            if t.weight < weight_threshold
-        ]
-        for tid in to_prune:
-            del self._store[tid]
-        return len(to_prune)
-
-    def forget(self, trace_id: str) -> bool:
-        """Explicitly remove a trace."""
-        if trace_id in self._store:
+    def _enforce_capacity(self) -> None:
+        """Remove weakest traces when store exceeds capacity."""
+        if len(self._store) <= self.capacity:
+            return
+        sorted_traces = sorted(self._store.items(), key=lambda x: x[1].weight)
+        overflow = len(self._store) - self.capacity
+        for trace_id, _ in sorted_traces[:overflow]:
             del self._store[trace_id]
-            return True
-        return False
-
-    # ─────────────────────────────────────────────
-    # Internals
-    # ─────────────────────────────────────────────
+            self._text_cache.pop(trace_id, None)
 
     def _find_similar_trace(
         self, hv: np.ndarray, threshold: float
     ) -> Optional[HDMemoryTrace]:
-        best, best_sim = None, 0.0
+        best_sim, best_trace = -1.0, None
         for trace in self._store.values():
-            sim = _cosine_hd(trace.hypervector, hv)
+            sim = _cosine_hd(hv, trace.hypervector)
             if sim > best_sim:
-                best, best_sim = trace, sim
-        return best if best_sim >= threshold else None
+                best_sim, best_trace = sim, trace
+        return best_trace if best_sim >= threshold else None
 
     def _update_bundle(self, topic: str, hv: np.ndarray, weight: float) -> None:
-        if topic not in self._bundle_cache:
-            self._bundle_cache[topic] = hv.copy()
+        if topic in self._bundle_cache:
+            self._bundle_cache[topic] = _bundle(
+                [self._bundle_cache[topic], hv], weights=[1.0, weight]
+            )
         else:
-            existing = self._bundle_cache[topic]
-            self._bundle_cache[topic] = _bundle([existing, hv], weights=[1.0, weight])
+            self._bundle_cache[topic] = hv.copy()
 
-    def _enforce_capacity(self) -> None:
-        if len(self._store) > self.capacity:
-            sorted_traces = sorted(self._store.items(), key=lambda x: x[1].weight)
-            overflow = len(self._store) - self.capacity
-            for tid, _ in sorted_traces[:overflow]:
-                del self._store[tid]
+    def _query_hv(self, hv: np.ndarray, top_k: int = 5) -> List[QueryResult]:
+        scored = []
+        for trace_id, trace in self._store.items():
+            sim = _cosine_hd(hv, trace.hypervector)
+            if sim >= self.similarity_threshold:
+                scored.append((sim * trace.weight, sim, trace))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [
+            QueryResult(
+                label=t.label,
+                text=self._text_cache.get(t.id, ""),
+                similarity=round(s, 4),
+                weight=round(t.weight, 4),
+                metadata=t.metadata.copy(),
+                trace_id=t.id,
+            )
+            for _, s, t in scored[:top_k]
+        ]
+
+    # ─────────────────────────────────────────────
+    # Stats
+    # ─────────────────────────────────────────────
 
     @property
     def stats(self) -> Dict:
-        if not self._store:
-            return {"total": 0, "dim": self.dim}
-        weights = [t.weight for t in self._store.values()]
         return {
-            "total_traces": len(self._store),
-            "dim": self.dim,
-            "vocab_size": self._codebook.vocab_size,
-            "avg_weight": round(sum(weights) / len(weights), 4),
-            "max_weight": round(max(weights), 4),
-            "topic_bundles": list(self._bundle_cache.keys()),
+            "stored_traces": len(self._store),
+            "capacity":      self.capacity,
+            "vocab_size":    self._codebook.vocab_size,
+            "topics":        list(self._bundle_cache.keys()),
+            "total_stores":  self._store_count,
+            "total_queries": self._query_count,
+            "dim":           self.dim,
         }
 
     def __len__(self) -> int:
         return len(self._store)
 
     def __repr__(self) -> str:
-        return f"VSAMemory(traces={len(self._store)}, dim={self.dim})"
+        return f"VSAMemory(dim={self.dim}, traces={len(self._store)}/{self.capacity})"

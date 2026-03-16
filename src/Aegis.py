@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from Perceptualgateway import PerceptualGateway, Route, GatewayDecision
-from Vsamemory         import VSAMemory, QueryResult
+from VSAMemory         import VSAMemory, QueryResult
 from Executivemonitor  import ExecutiveMonitor, ValidationResult, ConflictSeverity
 from Cortex            import Cortex
 from Attentionfilter   import AttentionFilter, AttentionDecision, AttentionPriority
@@ -146,7 +146,7 @@ class Aegis:
         self._turn_count   = 0
 
         # ── Phase 5: GoalStack (init first — AttentionFilter hooks into it) ──
-        self.goals = GoalStack(verbose=verbose)
+        self.goals = GoalStack(embed_fn=embed_fn,verbose=verbose)
 
         # ── Phase 0: AttentionFilter ──
         self.attention = AttentionFilter(
@@ -203,6 +203,7 @@ class Aegis:
         self.meta = MetaCognition(
             rethink_threshold=meta_rethink_threshold,
             optimal_response_words=meta_optimal_response_words,
+            embed_fn=embed_fn,
             verbose=verbose,
         )
 
@@ -305,6 +306,7 @@ class Aegis:
             conflict_count=len(validation.conflicts),
             memories_retrieved=cortex_memories,
             route=route.value,
+            user_query=user_input
         )
 
         # MetaCognition-triggered rethink (confidence too low, System 2 only)

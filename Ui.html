@@ -485,7 +485,7 @@ function appendAegisMessage(d) {
   }
 
   msg.innerHTML = `
-    <div class="bubble">${escHtml(d.text)}</div>
+    <div class="bubble">${renderMarkdown(escHtml(d.text))}</div>
     <div class="telemetry">
       <span class="tag route">${d.route}</span>
       <span class="tag ${validClass}">${validLabel}</span>
@@ -562,6 +562,12 @@ function escHtml(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
     .replace(/\n/g,'<br>');
+}
+
+function renderMarkdown(s) {
+  return s
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,     '<em>$1</em>');
 }
 </script>
 </body>
